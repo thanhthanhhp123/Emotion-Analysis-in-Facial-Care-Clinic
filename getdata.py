@@ -39,67 +39,79 @@ class GoogleReviewsCrawler:
         return place_links
     
     def get_reviews(self, place_url, max_reviews=100):
-        """Thu thập reviews với scroll tối ưu"""
+        """Thu thập reviews từ Google Maps"""
+        print(f"Fetching reviews from: {place_url}")
         self.driver.get(place_url)
         
         # Click vào tab reviews
-        reviews_tab = self.wait.until(EC.element_to_be_clickable(
-            (By.CSS_SELECTOR, 'button[jsaction="pane.rating.moreReviews"]')))
-        reviews_tab.click()
+        try:
+            reviews_button = self.wait.until(EC.element_to_be_clickable((By.XPATH, "//button[contains(@aria-label, 'Reviews for')]")))
+            self.driver.execute_script("arguments[0].click();", reviews_button)
+            time.sleep(2)
+        except Exception as e:
+            print(f"Error clicking reviews tab: {e}")
+            return []
         time.sleep(2)
         
-        # Tìm panel chứa reviews
-        reviews_panel = self.wait.until(EC.presence_of_element_located(
-            (By.CSS_SELECTOR, 'div[role="feed"]')))
-        
-        # Thực hiện scroll
         collected_reviews = []
+        last_review_count = 0
+        no_new_reviews_count = 0
+        
         while len(collected_reviews) < max_reviews:
-            # Scroll để load thêm reviews
-            self.scroll_reviews(reviews_panel)
-            
-            # Thu thập reviews mới
-            review_elements = reviews_panel.find_elements(
-                By.CSS_SELECTOR, 'div[jsaction^="pane.review"]'
-            )
-            
-            for review in review_elements[len(collected_reviews):]:
+            # Tìm tất cả reviews hiện tại
+            try:
+                review_elements = self.driver.find_elements(By.CSS_SELECTOR, 'div.MyEned')
+            except:
+                break
+                
+            # Kiểm tra xem có reviews mới không
+            if len(review_elements) == last_review_count:
+                no_new_reviews_count += 1
+                if no_new_reviews_count >= 3:  # Nếu scroll 3 lần không có reviews mới
+                    break
+            else:
+                no_new_reviews_count = 0
+                
+            # Xử lý các reviews mới
+            for review in review_elements[last_review_count:]:
                 try:
-                    # Mở rộng review nếu có nút "More"
+                    # Scroll để review hiện tại nằm trong tầm nhìn
+                    self.driver.execute_script(
+                        "arguments[0].scrollIntoView({ behavior: 'smooth', block: 'center' });",
+                        review
+                    )
+                    time.sleep(0.5)
+                    
+                    # Mở rộng review nếu có
                     try:
                         more_button = review.find_element(
                             By.CSS_SELECTOR, 'button[jsaction="pane.review.expandReview"]'
                         )
                         self.driver.execute_script("arguments[0].click();", more_button)
+                        time.sleep(0.5)
                     except:
                         pass
                     
                     # Thu thập thông tin
-                    rating = len(review.find_elements(
-                        By.CSS_SELECTOR, 'img[src$="star-full"]'
-                    ))
+                    rating_element = review.find_element(By.CSS_SELECTOR, 'span.kvMYJc')
+                    rating = int(rating_element.get_attribute("aria-label").split(" ")[0]) if rating_element else 0
                     
-                    # Thu thập text với xử lý ngoại lệ
-                    try:
-                        text = review.find_element(
-                            By.CSS_SELECTOR, 'span[jsaction="pane.review.expandReview"]'
-                        ).text
-                    except:
-                        text = review.find_element(
-                            By.CSS_SELECTOR, '.wiI7pd'
-                        ).text
+                    text_element = review.find_element(By.CSS_SELECTOR, 'span.wiI7pd')
+                    text = text_element.text if text_element else ""
                     
-                    # Thu thập thời gian
                     time_element = review.find_element(
                         By.CSS_SELECTOR, '.rsqaWe'
                     ).text
                     
-                    collected_reviews.append({
+                    review_data = {
                         'rating': rating,
                         'text': text,
                         'time': time_element
-                    })
+                    }
                     
+                    if review_data not in collected_reviews:
+                        collected_reviews.append(review_data)
+                        
                     if len(collected_reviews) >= max_reviews:
                         break
                         
@@ -107,8 +119,10 @@ class GoogleReviewsCrawler:
                     print(f"Error extracting review: {e}")
                     continue
             
-            # Kiểm tra xem có thêm reviews mới không
-            if len(collected_reviews) == len(review_elements):
+            last_review_count = len(review_elements)
+            
+            # Scroll để load thêm reviews
+            if not self.scroll_reviews():
                 break
                 
         return collected_reviews
