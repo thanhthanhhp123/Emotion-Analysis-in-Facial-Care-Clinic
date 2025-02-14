@@ -38,70 +38,64 @@ class GoogleReviewsCrawler:
                 
         return place_links
     
-    def get_reviews(self, place_url, max_reviews=100):
-        """Thu thập reviews từ Google Maps"""
-        print(f"Fetching reviews from: {place_url}")
+    def get_reviews(self, place_url, max_reviews=1000, max_scrolls=1000):
+        """Thu thập reviews từ Google Maps với giới hạn số lần cuộn"""
         self.driver.get(place_url)
         
         # Click vào tab reviews
-        try:
-            reviews_button = self.wait.until(EC.element_to_be_clickable((By.XPATH, "//button[contains(@aria-label, 'Reviews for')]")))
-            self.driver.execute_script("arguments[0].click();", reviews_button)
-            time.sleep(2)
-        except Exception as e:
-            print(f"Error clicking reviews tab: {e}")
-            return []
+        reviews_tab = self.wait.until(EC.element_to_be_clickable((
+            By.CSS_SELECTOR, 'button[role="tab"][aria-label*="Reviews"]'
+        )))
+        reviews_tab.click()
         time.sleep(2)
         
         collected_reviews = []
         last_review_count = 0
         no_new_reviews_count = 0
+        scroll_count = 0  # Biến đếm số lần cuộn
         
-        while len(collected_reviews) < max_reviews:
-            # Tìm tất cả reviews hiện tại
+        while len(collected_reviews) < max_reviews and scroll_count < max_scrolls:
             try:
                 review_elements = self.driver.find_elements(By.CSS_SELECTOR, 'div.MyEned')
             except:
                 break
                 
-            # Kiểm tra xem có reviews mới không
+            # Kiểm tra xem có review mới không
             if len(review_elements) == last_review_count:
                 no_new_reviews_count += 1
-                if no_new_reviews_count >= 3:  # Nếu scroll 3 lần không có reviews mới
+                if no_new_reviews_count >= 3:
                     break
             else:
                 no_new_reviews_count = 0
                 
-            # Xử lý các reviews mới
             for review in review_elements[last_review_count:]:
                 try:
-                    # Scroll để review hiện tại nằm trong tầm nhìn
+                    # Cuộn review vào tầm nhìn
                     self.driver.execute_script(
                         "arguments[0].scrollIntoView({ behavior: 'smooth', block: 'center' });",
                         review
                     )
                     time.sleep(0.5)
                     
-                    # Mở rộng review nếu có
+                    # Lấy nội dung review
                     try:
-                        more_button = review.find_element(
-                            By.CSS_SELECTOR, 'button[jsaction="pane.review.expandReview"]'
-                        )
-                        self.driver.execute_script("arguments[0].click();", more_button)
-                        time.sleep(0.5)
+                        text = review.find_element(By.CSS_SELECTOR, 'span.wiI7pd').text
                     except:
-                        pass
+                        continue
                     
-                    # Thu thập thông tin
-                    rating_element = review.find_element(By.CSS_SELECTOR, 'span.kvMYJc')
-                    rating = int(rating_element.get_attribute("aria-label").split(" ")[0]) if rating_element else 0
+                    # Lấy số sao
+                    try:
+                        rating_element = self.driver.find_element(By.CSS_SELECTOR, 'span.kvMYJc')
+                        rating_text = rating_element.get_attribute("aria-label")
+                        rating = int(rating_text.split(" ")[0]) if rating_text else 0
+                    except:
+                        rating = None
                     
-                    text_element = review.find_element(By.CSS_SELECTOR, 'span.wiI7pd')
-                    text = text_element.text if text_element else ""
-                    
-                    time_element = review.find_element(
-                        By.CSS_SELECTOR, '.rsqaWe'
-                    ).text
+                    # Lấy thời gian
+                    try:
+                        time_element = review.find_element(By.CSS_SELECTOR, '.rsqaWe').text
+                    except:
+                        time_element = None
                     
                     review_data = {
                         'rating': rating,
@@ -109,23 +103,32 @@ class GoogleReviewsCrawler:
                         'time': time_element
                     }
                     
-                    if review_data not in collected_reviews:
+                    # Chỉ thêm review mới và có nội dung
+                    if review_data not in collected_reviews and review_data['text'].strip():
                         collected_reviews.append(review_data)
+                        print(f"Đã thu thập review {len(collected_reviews)}/{max_reviews}")
                         
                     if len(collected_reviews) >= max_reviews:
                         break
                         
                 except Exception as e:
-                    print(f"Error extracting review: {e}")
+                    print(f"Lỗi khi thu thập review: {e}")
                     continue
             
             last_review_count = len(review_elements)
             
-            # Scroll để load thêm reviews
-            if not self.scroll_reviews():
+            # Scroll để tải thêm review
+            try:
+                sidebar = self.driver.find_element(By.CLASS_NAME, 'm6QErb')
+                self.driver.execute_script("arguments[0].scrollBy(0, arguments[0].clientHeight);", sidebar)
+                time.sleep(2)
+                scroll_count += 1  # Tăng số lần cuộn
+            except Exception as e:
+                print(f"Lỗi khi scroll: {e}")
                 break
-                
+                    
         return collected_reviews
+
 
     
     def crawl_multiple_places(self, query, location="Hà Nội", max_places=10, max_reviews_per_place=50):
@@ -164,8 +167,8 @@ def main():
         reviews = crawler.crawl_multiple_places(
             query="spa chăm sóc da",
             location="Hà Nội",
-            max_places=5,
-            max_reviews_per_place=20
+            max_places=10,
+            max_reviews_per_place=1000
         )
         
         # Lưu kết quả
