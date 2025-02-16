@@ -80,21 +80,18 @@ class GoogleMapsReviewCrawler:
         processed_reviews = set()
         last_height = 0
         same_height_count = 0
-        max_same_height = 3  # Số lần chiều cao không đổi tối đa
+        max_same_height = 3 
 
         while len(collected_reviews) < max_reviews:
             try:
-                # Tìm container chính chứa reviews
                 reviews_container = self.wait.until(EC.presence_of_element_located((
                     By.CSS_SELECTOR, 'div.m6QErb.DxyBCb.kA9KIf.dS8AEf'
                 )))
                 
-                # Lấy chiều cao hiện tại của container
                 current_height = self.driver.execute_script(
                     'return arguments[0].scrollHeight', reviews_container
                 )
 
-                # Kiểm tra nếu chiều cao không thay đổi
                 if current_height == last_height:
                     print("Chiều cao không thay đổi")
                     same_height_count += 1
@@ -105,26 +102,22 @@ class GoogleMapsReviewCrawler:
                     same_height_count = 0
                     last_height = current_height
 
-                # Lấy danh sách reviews hiện tại
                 review_elements = reviews_container.find_elements(By.CSS_SELECTOR, 'div.MyEned')
                 
                 for review in review_elements:
                     try:
-                        # Cuộn đến review hiện tại
                         self.driver.execute_script(
                             "arguments[0].scrollIntoView({ behavior: 'smooth', block: 'center' });",
                             review
                         )
                         time.sleep(0.3)
 
-                        # Lấy nội dung review
                         review_text = review.find_element(By.CSS_SELECTOR, 'span.wiI7pd').text
                         review_key = hash(review_text)
 
                         if review_key in processed_reviews:
                             continue
 
-                        # Lấy rating
                         try:
                             rating_element = self.driver.find_element(By.CSS_SELECTOR, 'span.kvMYJc')
                             rating_text = rating_element.get_attribute("aria-label")
@@ -148,7 +141,6 @@ class GoogleMapsReviewCrawler:
                         print(f"Lỗi khi xử lý review: {e}")
                         continue
 
-                # Cuộn container xuống
                 self.driver.execute_script("""
                     arguments[0].scrollTo({
                         top: arguments[0].scrollHeight,
@@ -163,15 +155,13 @@ class GoogleMapsReviewCrawler:
                         });
                     }, 500);
                 """, reviews_container)
-                
-                # Đợi để content load
+
                 time.sleep(2)
 
             except Exception as e:
                 print(f"Lỗi khi cuộn: {e}")
                 break
         
-        if 
 
         print(f"Đã hoàn thành, tổng cộng {len(collected_reviews)} đánh giá")
         return collected_reviews
@@ -182,8 +172,7 @@ class GoogleMapsReviewCrawler:
         place_links = self.search_places(query, location)
         
         # Thu thập reviews từ mỗi địa điểm
-        if max_places > len(place_links):
-            max_places = len(place_links)
+        max_places = max(len(place_links), max_places)
         all_reviews = []
         for i, link in enumerate(place_links[:max_places]):
             print(f"Crawling place {i+1}/{min(len(place_links), max_places)}")
@@ -217,18 +206,36 @@ if __name__ == "__main__":
     #     print(reviews)
     #     break
 
-    crawler = GoogleMapsReviewCrawler()
-    try:
-        reviews = crawler.crawl_multiple_places(
-            query="spa chăm sóc da",
-            location="Hà Nội",
-            max_places=100,
-            max_reviews_per_place=1000
-        )
+    locations = ["Hà Nội", "Thành phố Hồ Chí Minh", "Hải Phòng", "Đà Nẵng", "Nha Trang", "Đà Lạt", "Hạ Long", "Phú Quốc"]
+    for location in locations:
+        print(f"Đang thu thập reviews ở {location}...")
+        crawler = GoogleMapsReviewCrawler()
+        try:
+            reviews = crawler.crawl_multiple_places(
+                query="spa chăm sóc da",
+                location=location,
+                max_places=1,
+                max_reviews_per_place=1000
+            )
+            
+            crawler.save_to_csv(reviews, f'spa_reviews_{location}.csv')
+            
+            print(f"Đã thu thập được {len(reviews)} reviews")
+            
+        finally:
+            crawler.close()
+    # crawler = GoogleMapsReviewCrawler()
+    # try:
+    #     reviews = crawler.crawl_multiple_places(
+    #         query="spa chăm sóc da",
+    #         location="Thành phố Hồ Chí Minh",
+    #         max_places=200,
+    #         max_reviews_per_place=1000
+    #     )
         
-        crawler.save_to_csv(reviews, 'spa_reviews.csv')
+    #     crawler.save_to_csv(reviews, 'spa_reviews_sg.csv')
         
-        print(f"Đã thu thập được {len(reviews)} reviews")
+    #     print(f"Đã thu thập được {len(reviews)} reviews")
         
-    finally:
-        crawler.close()
+    # finally:
+    #     crawler.close()

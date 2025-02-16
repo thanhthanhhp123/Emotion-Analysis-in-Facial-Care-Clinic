@@ -166,13 +166,13 @@ def main():
         # Thu thập reviews
         reviews = crawler.crawl_multiple_places(
             query="spa chăm sóc da",
-            location="Hà Nội",
+            location="Thành phố Hồ Chí Minh",
             max_places=10,
             max_reviews_per_place=1000
         )
         
         # Lưu kết quả
-        crawler.save_to_csv(reviews, 'spa_reviews.csv')
+        crawler.save_to_csv(reviews, 'spa_reviews_sg.csv')
         
         print(f"Đã thu thập được {len(reviews)} reviews")
         
